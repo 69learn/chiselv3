@@ -63,30 +63,21 @@ install() {
     echo ""
     system_architecture=$(uname -m)
 
-if [ "$system_architecture" != "x86_64" ] && [ "$system_architecture" != "amd64" ]; then
-    echo "Unsupported architecture: $system_architecture"
-    exit 1
-fi
+    if [ "$system_architecture" != "x86_64" ] && [ "$system_architecture" != "amd64" ]; then
+        echo "Unsupported architecture: $system_architecture"
+        exit 1
+    fi
 
-sleep 1
+    sleep 1
     echo ""
-    echo -e "${YELLOW}Downloading and installing udp2raw for architecture: $system_architecture${NC}"
-curl -L -o udp2raw_amd64 https://github.com/amirmbn/UDP2RAW/raw/main/Core/udp2raw_amd64
-curl -L -o udp2raw_x86 https://github.com/amirmbn/UDP2RAW/raw/main/Core/udp2raw_x86
-sleep 1
+    echo -e "${YELLOW}Downloading and installing chisel for architecture: $system_architecture${NC}"
+    curl -L -o chisel.gz https://github.com/jpillora/chisel/releases/download/v1.9.1/chisel_1.9.1_linux_amd64.gz
+    gunzip chisel.gz
+    chmod +x chisel
+    mv chisel /usr/local/bin/
 
-chmod +x udp2raw_amd64
-chmod +x udp2raw_x86
-
-echo ""
-echo -e "${GREEN}Enabling IP forwarding...${NC}"
-display_fancy_progress 20
-echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-echo "net.ipv6.conf.all.forwarding = 1" >> /etc/sysctl.conf
-sysctl -p > /dev/null 2>&1
-ufw reload > /dev/null 2>&1
-echo ""
-echo -e "${GREEN}All packages were installed and configured.${NC}"
+    echo ""
+    echo -e "${GREEN}Chisel has been installed successfully.${NC}"
 }
 
 validate_port() {
@@ -106,10 +97,11 @@ validate_port() {
 
     return 0
 }
+
 remote_func() {
     clear
     echo ""
-    echo -e "\e[33mSelect EU Tunnel Mode${NC}"
+    echo -e "\e[33mSelect Tunnel Mode${NC}"
     echo ""
     echo -e "${RED}1${NC}. ${YELLOW}IPV6${NC}"
     echo -e "${RED}2${NC}. ${YELLOW}IPV4${NC}"
@@ -130,7 +122,7 @@ remote_func() {
     esac
 
     while true; do
-        echo -ne "\e[33mEnter the Local server (IR) port \e[92m[Default: 443]${NC}: "
+        echo -ne "\e[33mEnter the Local server port \e[92m[Default: 443]${NC}: "
         read local_port
         if [ -z "$local_port" ]; then
             local_port=443
@@ -155,42 +147,19 @@ remote_func() {
     done
 
     echo ""
-    echo -ne "\e[33mEnter the Password for UDP2RAW \e[92m[This will be used on your local server (IR)]${NC}: "
-    read password
-    echo ""
-    echo -e "\e[33m protocol (Mode) (Local and remote should be the same)${NC}"
-    echo ""
-    echo -e "${RED}1${NC}. ${YELLOW}udp${NC}"
-    echo -e "${RED}2${NC}. ${YELLOW}faketcp${NC}"
-    echo -e "${RED}3${NC}. ${YELLOW}icmp${NC}"
-    echo ""
-    echo -ne "Enter your choice [1-3] : ${NC}"
-    read protocol_choice
+    echo -ne "\e[33mEnter the Remote server address (EU) \e[92m${NC}: "
+    read remote_address
 
-    case $protocol_choice in
-        1)
-            raw_mode="udp"
-            ;;
-        2)
-            raw_mode="faketcp"
-            ;;
-        3)
-            raw_mode="icmp"
-            ;;
-        *)
-            echo -e "${RED}Invalid choice, choose correctly ...${NC}"
-            ;;
-    esac
+    echo -ne "\e[33mEnter the User Authentication Token for Chisel \e[92m${NC}: "
+    read auth_token
 
-    echo -e "${CYAN}Selected protocol: ${GREEN}$raw_mode${NC}"
-
-cat << EOF > /etc/systemd/system/udp2raw-s.service
+cat << EOF > /etc/systemd/system/chisel-server.service
 [Unit]
-Description=udp2raw-s Service
+Description=Chisel Server Service
 After=network.target
 
 [Service]
-ExecStart=/root/udp2raw_amd64 -s -l $tunnel_mode:${local_port} -r 127.0.0.1:${remote_port} -k "${password}" --raw-mode ${raw_mode} -a
+ExecStart=/usr/local/bin/chisel server --reverse --port $local_port --auth "$auth_token"
 
 Restart=always
 
@@ -200,219 +169,83 @@ EOF
 
     sleep 1
     systemctl daemon-reload
-    systemctl restart "udp2raw-s.service"
-    systemctl enable --now "udp2raw-s.service"
-    systemctl start --now "udp2raw-s.service"
+    systemctl restart "chisel-server.service"
+    systemctl enable --now "chisel-server.service"
+    systemctl start --now "chisel-server.service"
     sleep 1
 
     echo -e "\e[92mRemote Server (EU) configuration has been adjusted and service started. Yours truly${NC}"
-echo ""
-GREEN='\033[0;92m'
-RED='\033[0;91m'
-NC='\033[0m'
-
-echo -e "${GREEN}Make sure to allow port ${RED}$remote_port${GREEN} on your firewall by this command:${RED} ufw allow $remote_port ${NC}"
+    echo ""
+    echo -e "${GREEN}Make sure to allow port ${RED}$remote_port${GREEN} on your firewall by this command:${RED} ufw allow $remote_port ${NC}"
 }
 
 local_func() {
     clear
     echo ""
-    echo -e "\e[33mSelect IR Tunnel Mode${NC}"
+    echo -e "\e[33mSelect Tunnel Mode${NC}"
     echo ""
-    echo -e "${RED}1${NC}. ${YELLOW}IPV6${NC}"
-    echo -e "${RED}2${NC}. ${YELLOW}IPV4${NC}"
-    echo ""
-    echo -ne "Enter your choice [1-2] : ${NC}"
-    read tunnel_mode
-
-    case $tunnel_mode in
-        1)
-            tunnel_mode="IPV6"
-            ;;
-        2)
-            tunnel_mode="IPV4"
-            ;;
-        *)
-            echo -e "${RED}Invalid choice, choose correctly ...${NC}"
-            ;;
-    esac
-    while true; do
-        echo -ne "\e[33mEnter the Local server (IR) port \e[92m[Default: 443]${NC}: "
-        read remote_port
-        if [ -z "$remote_port" ]; then
-            remote_port=443
-            break
-        fi
-        if validate_port "$remote_port"; then
-            break
-        fi
-    done
-
-    while true; do
-        echo ""
-        echo -ne "\e[33mEnter the Wireguard port - installed on EU \e[92m[Default: 50820]${NC}: "
-        read local_port
-        if [ -z "$local_port" ]; then
-            local_port=50820
-            break
-        fi
-        if validate_port "$local_port"; then
-            break
-        fi
-    done
-    echo ""
-    echo -ne "\e[33mEnter the Remote server (EU) IPV6 / IPV4 (Based on your tunnel preference)\e[92m${NC}: "
+    echo -ne "Enter the Remote server address (EU) \e[92m${NC}: "
     read remote_address
-    echo ""
-    echo -ne "\e[33mEnter the Password for UDP2RAW \e[92m[The same as you set on remote server (EU)]${NC}: "
-    read password
-    echo ""
-    echo -e "\e[33m protocol (Mode) \e[92m(Local and Remote shoud have the same value)${NC}"
-    echo ""
-    echo -e "${RED}1${NC}. ${YELLOW}udp${NC}"
-    echo -e "${RED}2${NC}. ${YELLOW}faketcp${NC}"
-    echo -e "${RED}3${NC}. ${YELLOW}icmp${NC}"
-    echo ""
-    echo -ne "Enter your choice [1-3] : ${NC}"
-    read protocol_choice
 
-    case $protocol_choice in
-        1)
-            raw_mode="udp"
-            ;;
-        2)
-            raw_mode="faketcp"
-            ;;
-        3)
-            raw_mode="icmp"
-            ;;
-        *)
-            echo -e "${RED}Invalid choice, choose correctly ...${NC}"
-            ;;
-    esac
+    echo ""
+    echo -ne "\e[33mEnter the Local port \e[92m[Default: 50820]${NC}: "
+    read local_port
+    if [ -z "$local_port" ]; then
+        local_port=50820
+    fi
 
-echo -e "${CYAN}Selected protocol: ${GREEN}$raw_mode${NC}"
+    echo ""
+    echo -ne "\e[33mEnter the Server port \e[92m[Default: 443]${NC}: "
+    read remote_port
+    if [ -z "$remote_port" ]; then
+        remote_port=443
+    fi
 
-if [ "$tunnel_mode" == "IPV4" ]; then
-    exec_start="/root/udp2raw_amd64 -c -l 0.0.0.0:${local_port} -r ${remote_address}:${remote_port} -k ${password} --raw-mode ${raw_mode} -a"
-else
-    exec_start="/root/udp2raw_amd64 -c -l [::]:${local_port} -r [${remote_address}]:${remote_port} -k ${password} --raw-mode ${raw_mode} -a"
-fi
+    echo ""
+    echo -ne "\e[33mEnter the User Authentication Token for Chisel \e[92m${NC}: "
+    read auth_token
 
-cat << EOF > /etc/systemd/system/udp2raw-c.service
+cat << EOF > /etc/systemd/system/chisel-client.service
 [Unit]
-Description=udp2raw-c Service
+Description=Chisel Client Service
 After=network.target
 
 [Service]
-ExecStart=${exec_start}
+ExecStart=/usr/local/bin/chisel client --auth "$auth_token" $remote_address:$remote_port R:$local_port:127.0.0.1:$local_port
+
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-sleep 1
-systemctl daemon-reload
-systemctl restart "udp2raw-c.service"
-systemctl enable --now "udp2raw-c.service"
-systemctl start --now "udp2raw-c.service"
+    sleep 1
+    systemctl daemon-reload
+    systemctl restart "chisel-client.service"
+    systemctl enable --now "chisel-client.service"
+    systemctl start --now "chisel-client.service"
 
-echo -e "\e[92mLocal Server (IR) configuration has been adjusted and service started. Yours truly${NC}"
-echo ""
-GREEN='\033[0;92m'
-RED='\033[0;91m'
-NC='\033[0m'
-
-echo -e "${GREEN}Make sure to allow port ${RED}$remote_port${GREEN} on your firewall by this command:${RED} ufw allow $remote_port ${NC}"
+    echo -e "\e[92mLocal Server (IR) configuration has been adjusted and service started. Yours truly${NC}"
+    echo ""
+    echo -e "${GREEN}Make sure to allow port ${RED}$remote_port${GREEN} on your firewall by this command:${RED} ufw allow $remote_port ${NC}"
 }
 
 uninstall() {
     clear
     echo ""
-    echo -e "${YELLOW}Uninstalling UDP2RAW, Please wait ...${NC}"
+    echo -e "${YELLOW}Uninstalling Chisel, Please wait ...${NC}"
     echo ""
     echo ""
     display_fancy_progress 20
 
-    systemctl stop --now "udp2raw-s.service" > /dev/null 2>&1
-    systemctl disable --now "udp2raw-s.service" > /dev/null 2>&1
-    systemctl stop --now "udp2raw-c.service" > /dev/null 2>&1
-    systemctl disable --now "udp2raw-c.service" > /dev/null 2>&1
-    rm -f /etc/systemd/system/udp2raw-s.service > /dev/null 2>&1
-    rm -f /etc/systemd/system/udp2raw-c.service > /dev/null 2>&1
-    rm -f /usr/local/bin/udp2raw > /dev/null 2>&1
+    systemctl stop --now "chisel-server.service" > /dev/null 2>&1
+    systemctl disable --now "chisel-server.service" > /dev/null 2>&1
+    systemctl stop --now "chisel-client.service" > /dev/null 2>&1
+    systemctl disable --now "chisel-client.service" > /dev/null 2>&1
+    rm -f /etc/systemd/system/chisel-server.service > /dev/null 2>&1
+    rm -f /etc/systemd/system/chisel-client.service > /dev/null 2>&1
+    rm -f /usr/local/bin/chisel > /dev/null 2>&1
     
     sleep 2
     echo ""
-    echo ""
-    echo -e "${GREEN}UDP2RAW has been uninstalled.${NC}"
-}
-
-menu_status() {
-    systemctl is-active "udp2raw-s.service" &> /dev/null
-    remote_status=$?
-
-    systemctl is-active "udp2raw-c.service" &> /dev/null
-    local_status=$?
-
-GREEN='\033[0;92m'
-RED='\033[0;91;1m'
-CYAN='\033[0;96m'
-NC='\033[0m'
-echo ""
-if [ $remote_status -eq 0 ]; then
-    echo -e "\e[36m ${CYAN}EU Server Status${NC} > ${GREEN}Wireguard Tunnel is running.${NC}"
-else
-    echo -e "\e[36m ${CYAN}EU Server Status${NC} > ${RED}Wireguard Tunnel is not running.${NC}"
-fi
-echo ""
-if [ $local_status -eq 0 ]; then
-    echo -e "\e[36m ${CYAN}IR Server Status${NC} > ${GREEN}Wireguard Tunnel is running.${NC}"
-else
-    echo -e "\e[36m ${CYAN}IR Server Status${NC} > ${RED}Wireguard Tunnel is not running.${NC}"
-fi
-}
-echo ""
-while true; do
-    clear    
-    menu_status
-    echo ""
-    echo ""
-    echo -e "\e[36m 1\e[0m) \e[93mInstall UDP2RAW binary"
-    echo -e "\e[36m 2\e[0m) \e[93mSet EU Tunnel"
-    echo -e "\e[36m 3\e[0m) \e[93mSet IR Tunnel"  
-    echo ""
-    echo -e "\e[36m 4\e[0m) \e[93mUninstall UDP2RAW"
-    echo -e "\e[36m 0\e[0m) \e[93mExit"
-    echo ""
-    echo ""
-    echo -ne "\e[92mSelect an option \e[31m[\e[97m0-4\e[31m]: \e[0m"
-    read choice
-
-    case $choice in
-        
-        1)
-            install
-            ;;
-        2)
-            remote_func
-            ;;
-        3)
-            local_func
-            ;;
-        4)
-            uninstall
-            ;;
-        0)
-            echo -e "\n ${RED}Exiting...${NC}"
-            exit 0
-            ;;
-        *)
-            echo -e "\n ${RED}Invalid choice. Please enter a valid option.${NC}"
-            ;;
-    esac
-
-    echo -e "\n ${RED}Press Enter to continue... ${NC}"
-    read
-done
+   
