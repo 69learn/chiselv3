@@ -1,3 +1,5 @@
+#!/bin/bash
+
 CYAN="\e[96m"
 GREEN="\e[92m"
 YELLOW="\e[93m"
@@ -52,7 +54,7 @@ install() {
     echo ""
     sleep 1
     secs=4
-    while [ $secs -gt 0 ]; do
+    while [ $secs -gt 0 ];do
         echo -ne "Continuing in $secs seconds\033[0K\r"
         sleep 1
         : $((secs--))
@@ -248,4 +250,47 @@ uninstall() {
     
     sleep 2
     echo ""
-   
+    echo -e "${GREEN}Chisel has been uninstalled successfully.${NC}"
+}
+
+menu() {
+    clear
+    echo ""
+    echo -e "${YELLOW}Choose an option${NC}"
+    echo ""
+    echo -e "${RED}1${NC}. Install Chisel"
+    echo -e "${RED}2${NC}. Setup Remote Server"
+    echo -e "${RED}3${NC}. Setup Local Server"
+    echo -e "${RED}4${NC}. Uninstall Chisel"
+    echo -e "${RED}5${NC}. Exit"
+    echo ""
+    echo -ne "Enter your choice [1-5]: "
+    read choice
+
+    case $choice in
+        1)
+            install
+            press_enter
+            ;;
+        2)
+            remote_func
+            press_enter
+            ;;
+        3)
+            local_func
+            press_enter
+            ;;
+        4)
+            uninstall
+            press_enter
+            ;;
+        5)
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Invalid option. Please try again.${NC}"
+            ;;
+    esac
+}
+
+menu
